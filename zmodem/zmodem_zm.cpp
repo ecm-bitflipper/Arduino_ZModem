@@ -34,48 +34,50 @@
 #endif
 #endif
 
+// Shared globals
+long Bytesleft; // from rz - Shared with sz bytcnt
+long rxbytes;   // from rz - Shared with sz Lrxpos
+int Blklen;     // from rz - Shared with sz blklen
 
-//uint32_t Baudrate=115200; /* Default, should be set by first mode() call */
+#define Rxtimeout 100            /* Tenths of seconds to wait for something */
+#define Verbose 0
 
-int Rxtimeout = 100;            /* Tenths of seconds to wait for something */
-int Zmodem=1;           /* ZMODEM protocol requested */
-int Verbose=0;
-
-
-
+// This buffer blends Txb (from sz) and secbuf (from rz) into a single buffer, saving 1K
+// of memory.
+char oneKbuf[1025];
 
 /* Globals used by ZMODEM functions */
-int Rxframeind;         /* ZBIN ZBIN32, or ZHEX type of frame received */
-int Rxtype;             /* Type of header received */
+uint8_t Rxframeind;         /* ZBIN ZBIN32, or ZHEX type of frame received */
+uint8_t Rxtype;             /* Type of header received */
 int Rxcount;            /* Count of data bytes received */
 char Rxhdr[4];          /* Received header */
 char Txhdr[4];          /* Transmitted header */
 long Rxpos;             /* Received file position */
 long Txpos;             /* Transmitted file position */
-int Txfcs32;            /* TRUE means send binary frames with 32 bit FCS */
-int Crc32t;             /* Display flag indicating 32 bit CRC being sent */
-int Crc32;              /* Display flag indicating 32 bit CRC being received */
-int Znulls;             /* Number of nulls to send at beginning of ZDATA hdr */
+int8_t Txfcs32;            /* TRUE means send binary frames with 32 bit FCS */
+int8_t Crc32t;             /* Display flag indicating 32 bit CRC being sent */
+int8_t Crc32;              /* Display flag indicating 32 bit CRC being received */
+//int Znulls;             /* Number of nulls to send at beginning of ZDATA hdr */
 char Attn[ZATTNLEN+1];  /* Attention string rx sends to tx on err */
 
 char zconv;             /* ZMODEM file conversion request */
 char zmanag;            /* ZMODEM file management request */
 char ztrans;            /* ZMODEM file transport request */
-int Zctlesc;            /* Encode control characters */
-int Zrwindow = 1400;    /* RX window size (controls garbage count) */
-int Nozmodem = 0;       /* If invoked as "rb" */
+uint8_t Zctlesc;            /* Encode control characters */
+#define Zrwindow 1400    /* RX window size (controls garbage count) */
+//int Nozmodem = 0;       /* If invoked as "rb" */
 int lastsent;           /* Last char we sent */
-int Not8bit;            /* Seven bits seen on header */
-char Lzmanag;           /* Local ZMODEM file management request */
+uint8_t Not8bit;            /* Seven bits seen on header */
+//char Lzmanag;           /* Local ZMODEM file management request */
 //int Restricted = 0;       /* restricted; no /.. or ../ in filenames */
-int Quiet=0;            /* overrides logic that would otherwise set verbose */
-int Eofseen;            /* EOF seen on input set by zfilbuf */
+//int Quiet=0;            /* overrides logic that would otherwise set verbose */
+uint8_t Eofseen;            /* EOF seen on input set by zfilbuf */
 
 
-int firstsec;
+uint8_t firstsec;
 char Lastrx;
 char Crcflg;
-int errors;;
+uint8_t errors;
 
 // Dylan (monte_carlo_ecm, bitflipper, etc.) - Removing this for release to save
 // memory, only used for debugging
@@ -110,7 +112,7 @@ char *frametypes[] = {
   //  not including psuedo negative entries 
 };
 */
-static char badcrc[] = "Bad CRC";
+#define badcrc F("Bad CRC");
 
 
 
@@ -119,20 +121,38 @@ static char badcrc[] = "Bad CRC";
 /* Send ZMODEM binary header hdr of type type */
 void zsbhdr(int type, char *hdr)
 {
-  int n;
-  unsigned short crc;
+
 
   vfile(F("zsbhdr: %s %lx"), frametypes[type+FTOFFSET], rclhdr(hdr));
-  if (type == ZDATA)
+/*  if (type == ZDATA)
     for (n = Znulls; --n >=0; )
       xsendline(0);
-
+*/
   xsendline(ZPAD); 
   xsendline(ZDLE);
 //Pete (El Supremo) This looks wrong but it is correct - the code fails if == is used
-  if ((Crc32t = Txfcs32))
-    zsbh32(hdr, type);
-  else {
+  if ((Crc32t = Txfcs32)) {
+    int n;
+    UNSL long crc;
+  
+    xsendline(ZBIN32);  
+    zsendline(type);
+    crc = 0xFFFFFFFFL; 
+    crc = UPDC32(type, crc);
+  
+    for (n=4; --n >= 0; ++hdr) {
+      crc = UPDC32((0377 & *hdr), crc);
+      zsendline(*hdr);
+    }
+    crc = ~crc;
+    for (n=4; --n >= 0;) {
+      zsendline((int)crc);
+      crc >>= 8;
+    }
+  } else {
+    int n;
+    unsigned short crc;
+    
     xsendline(ZBIN); 
     zsendline(type); 
     crc = updcrc(type, 0);
@@ -148,32 +168,6 @@ void zsbhdr(int type, char *hdr)
   if (type != ZDATA)
     flushmo();
 }
-
-
-
-
-/* Send ZMODEM binary header hdr of type type */
-void zsbh32(char *hdr, int type)
-{
-  int n;
-  UNSL long crc;
-
-  xsendline(ZBIN32);  
-  zsendline(type);
-  crc = 0xFFFFFFFFL; 
-  crc = UPDC32(type, crc);
-
-  for (n=4; --n >= 0; ++hdr) {
-    crc = UPDC32((0377 & *hdr), crc);
-    zsendline(*hdr);
-  }
-  crc = ~crc;
-  for (n=4; --n >= 0;) {
-    zsendline((int)crc);
-    crc >>= 8;
-  }
-}
-
 
 
 /* Send ZMODEM HEX header hdr of type type */
@@ -214,21 +208,44 @@ void zshhdr(int type,char *hdr)
 /*
  * Send binary array buf of length length, with ending ZDLE sequence frameend
  */
+/*
 static char *Zendnames[] = { 
   (char *)"ZCRCE", 
   (char *)"ZCRCG",
   (char *)"ZCRCQ",
   (char *)"ZCRCW"
 };
+*/
 
 void zsdata(char *buf,int length,int frameend)
 {
-  register unsigned short crc;
 
   vfile(F("zsdata: %d %s"), length, Zendnames[(frameend-ZCRCE)&3]);
-  if (Crc32t)
-    zsda32(buf, length, frameend);
-  else {
+  if (Crc32t) {
+    int c;
+    UNSL long crc;
+  
+    crc = 0xFFFFFFFFL;
+    for (;--length >= 0; ++buf) {
+      c = *buf & 0377;
+      if (c & 0140)
+        xsendline(lastsent = c);
+      else
+        zsendline(c);
+      crc = UPDC32(c, crc);
+    }
+    xsendline(ZDLE); 
+    xsendline(frameend);
+    crc = UPDC32(frameend, crc);
+  
+    crc = ~crc;
+    for (length=4; --length >= 0;) {
+      zsendline((int)crc);  
+      crc >>= 8;
+    }
+  } else {
+    unsigned short crc;
+    
     crc = 0;
     for (;--length >= 0; ++buf) {
       zsendline(*buf); 
@@ -248,34 +265,6 @@ void zsdata(char *buf,int length,int frameend)
   }
 }
 
-
-void zsda32(char *buf,int length,int frameend)
-{
-  int c;
-  UNSL long crc;
-
-  crc = 0xFFFFFFFFL;
-  for (;--length >= 0; ++buf) {
-    c = *buf & 0377;
-    if (c & 0140)
-      xsendline(lastsent = c);
-    else
-      zsendline(c);
-    crc = UPDC32(c, crc);
-  }
-  xsendline(ZDLE); 
-  xsendline(frameend);
-  crc = UPDC32(frameend, crc);
-
-  crc = ~crc;
-  for (length=4; --length >= 0;) {
-    zsendline((int)crc);  
-    crc >>= 8;
-  }
-}
-
-
-#ifndef NOTDEF
 /*
  * Receive array buf of max length with ending ZDLE sequence
  *  and CRC.  Returns the ending character or error code.
@@ -284,120 +273,108 @@ void zsda32(char *buf,int length,int frameend)
 int zrdata(char *buf,int length)
 {
   int c;
-  unsigned short crc;
   char *end;
   int d;
 
-  if (Rxframeind == ZBIN32)
-    return zrdat32(buf, length);
-
-  crc = Rxcount = 0;  
-  end = buf + length;
-  while (buf <= end) {
-    if ((c = zdlread()) & ~0377) {
-crcfoo:
-      switch (c) {
-      case GOTCRCE:
-      case GOTCRCG:
-      case GOTCRCQ:
-      case GOTCRCW:
-        crc = updcrc((d=c)&0377, crc);
-        if ((c = zdlread()) & ~0377)
-          goto crcfoo;
-        crc = updcrc(c, crc);
-        if ((c = zdlread()) & ~0377)
-          goto crcfoo;
-        crc = updcrc(c, crc);
-        if (crc & 0xFFFF) {
-          zperr(badcrc);
-          return ERROR;
+  if (Rxframeind == ZBIN32) {
+    UNSL long crc;
+  
+    crc = 0xFFFFFFFFL;  
+    Rxcount = 0;  
+    end = buf + length;
+    while (buf <= end) {
+      if ((c = zdlread()) & ~0377) {
+  crcfoo32:
+        switch (c) {
+        case GOTCRCE:
+        case GOTCRCG:
+        case GOTCRCQ:
+        case GOTCRCW:
+          d = c;  
+          c &= 0377;
+          crc = UPDC32(c, crc);
+          if ((c = zdlread()) & ~0377)
+            goto crcfoo32;
+          crc = UPDC32(c, crc);
+          if ((c = zdlread()) & ~0377)
+            goto crcfoo32;
+          crc = UPDC32(c, crc);
+          if ((c = zdlread()) & ~0377)
+            goto crcfoo32;
+          crc = UPDC32(c, crc);
+          if ((c = zdlread()) & ~0377)
+            goto crcfoo32;
+          crc = UPDC32(c, crc);
+          if (crc != 0xDEBB20E3) {
+            zperr(badcrc);
+            return ERROR;
+          }
+          Rxcount = length - (end - buf);
+          vfile(F("zrdat32: %d %s"), Rxcount,
+          Zendnames[(d-GOTCRCE)&3]);
+          return d;
+        case GOTCAN:
+          zperr("Sender Canceled");
+          return ZCAN;
+        case TIMEOUT:
+          zperr("TIMEOUT");
+          return c;
+        default:
+          zperr("Bad data subpacket");
+          return c;
         }
-        Rxcount = length - (end - buf);
-        vfile(F("zrdata: %d  %s"), Rxcount,
-        Zendnames[(d-GOTCRCE)&3]);
-        return d;
-      case GOTCAN:
-        zperr("Sender Canceled");
-        return ZCAN;
-      case TIMEOUT:
-        zperr("TIMEOUT");
-        return c;
-      default:
-        zperr("Bad data subpacket");
-        return c;
       }
+      *buf++ = c;
+      crc = UPDC32(c, crc);
     }
-    *buf++ = c;
-    crc = updcrc(c, crc);
-  }
-  zperr("Data subpacket too long");
-  return ERROR;
-}
-#endif
+    zperr("Data subpacket too long");
+    return ERROR;
+  } else {
+    unsigned short crc;
 
-#ifndef NOTDEF
-
-int zrdat32(char *buf,int length)
-{
-  int c;
-  UNSL long crc;
-  char *end;
-  int d;
-
-  crc = 0xFFFFFFFFL;  
-  Rxcount = 0;  
-  end = buf + length;
-  while (buf <= end) {
-    if ((c = zdlread()) & ~0377) {
-crcfoo:
-      switch (c) {
-      case GOTCRCE:
-      case GOTCRCG:
-      case GOTCRCQ:
-      case GOTCRCW:
-        d = c;  
-        c &= 0377;
-        crc = UPDC32(c, crc);
-        if ((c = zdlread()) & ~0377)
-          goto crcfoo;
-        crc = UPDC32(c, crc);
-        if ((c = zdlread()) & ~0377)
-          goto crcfoo;
-        crc = UPDC32(c, crc);
-        if ((c = zdlread()) & ~0377)
-          goto crcfoo;
-        crc = UPDC32(c, crc);
-        if ((c = zdlread()) & ~0377)
-          goto crcfoo;
-        crc = UPDC32(c, crc);
-        if (crc != 0xDEBB20E3) {
-          zperr(badcrc);
-          return ERROR;
+    crc = Rxcount = 0;  
+    end = buf + length;
+    while (buf <= end) {
+      if ((c = zdlread()) & ~0377) {
+  crcfoo16:
+        switch (c) {
+        case GOTCRCE:
+        case GOTCRCG:
+        case GOTCRCQ:
+        case GOTCRCW:
+          crc = updcrc((d=c)&0377, crc);
+          if ((c = zdlread()) & ~0377)
+            goto crcfoo16;
+          crc = updcrc(c, crc);
+          if ((c = zdlread()) & ~0377)
+            goto crcfoo16;
+          crc = updcrc(c, crc);
+          if (crc & 0xFFFF) {
+            zperr(badcrc);
+            return ERROR;
+          }
+          Rxcount = length - (end - buf);
+          vfile(F("zrdata: %d  %s"), Rxcount,
+          Zendnames[(d-GOTCRCE)&3]);
+          return d;
+        case GOTCAN:
+          zperr("Sender Canceled");
+          return ZCAN;
+        case TIMEOUT:
+          zperr("TIMEOUT");
+          return c;
+        default:
+          zperr("Bad data subpacket");
+          return c;
         }
-        Rxcount = length - (end - buf);
-        vfile(F("zrdat32: %d %s"), Rxcount,
-        Zendnames[(d-GOTCRCE)&3]);
-        return d;
-      case GOTCAN:
-        zperr("Sender Canceled");
-        return ZCAN;
-      case TIMEOUT:
-        zperr("TIMEOUT");
-        return c;
-      default:
-        zperr("Bad data subpacket");
-        return c;
       }
+      *buf++ = c;
+      crc = updcrc(c, crc);
     }
-    *buf++ = c;
-    crc = UPDC32(c, crc);
+    zperr("Data subpacket too long");
+    return ERROR;
   }
-  zperr("Data subpacket too long");
-  return ERROR;
 }
-
-#endif
-
 
 /*
  * Read a ZMODEM header to hdr, either binary or hex.
@@ -567,7 +544,7 @@ int zrbhdr(char *hdr)
 #ifdef ZMODEM
   Protocol = ZMODEM;
 #endif
-  Zmodem = 1;
+//  Zmodem = 1;
   return Rxtype;
 }
 
@@ -612,7 +589,7 @@ int zrbhdr32(char *hdr)
 #ifdef ZMODEM
   Protocol = ZMODEM;
 #endif
-  Zmodem = 1;
+//  Zmodem = 1;
   return Rxtype;
 }
 
@@ -661,24 +638,32 @@ int zrhhdr(char *hdr)
 #ifdef ZMODEM
   Protocol = ZMODEM;
 #endif
-  Zmodem = 1; 
+//  Zmodem = 1; 
   return Rxtype;
 }
 
-
-
 /* Send a byte as two hex digits */
-void zputhex(int c)
+/*void zputhex(int c)
 {
-  static char     digits[]        = "0123456789abcdef";
+  static char     digits[]  = "0123456789abcdef";
 
   if (Verbose>8)
     vfile(F("zputhex: %02X"), c);
   sendline(digits[(c&0xF0)>>4]);
   sendline(digits[(c)&0xF]);
+} */
+
+PROGMEM static const char digits[17] = "0123456789abcdef";
+
+void zputhex(int c)
+{
+//  static char     digits[]  = "0123456789abcdef";
+
+  if (Verbose>8)
+    vfile(F("zputhex: %02X"), c);
+  sendline(pgm_read_byte(digits+((c&0xF0)>>4)));
+  sendline(pgm_read_byte(digits+((c)&0xF)));
 }
-
-
 
 /*
  * Send character c with ZMODEM escape sequence encoding.
@@ -724,19 +709,8 @@ sendit:
 
 
 /* Decode two lower case hex digits into an 8 bit byte value */
+
 int zgethex(void)
-{
-  int c;
-
-  c = zgeth1();
-  if (Verbose>8)
-    vfile(F("zgethex: %02X"), c);
-  return c;
-}
-
-
-
-int zgeth1(void)
 {
   int c, n;
 
@@ -995,6 +969,25 @@ void bttyout(int c)
   if (Verbose || Fromcu)
     putc(c, stderr);
 #endif
+}
+
+void flushmo(void)
+{
+  ZSERIAL.flush();
+}
+
+
+
+/* send cancel string to get the other end to shut up */
+void canit(void)
+{
+  for (int i=0; i < 10; ++i) {
+    ZSERIAL.write(24);
+  }
+  for (int i=0; i < 10; ++i) {
+    ZSERIAL.write(8);
+  }
+  ZSERIAL.flush();
 }
 
 /* End of zm.c */

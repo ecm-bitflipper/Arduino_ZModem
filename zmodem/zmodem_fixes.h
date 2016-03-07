@@ -7,18 +7,6 @@ From: http://stackoverflow.com/questions/2607853/why-prototype-is-used-header-fi
 #define ZMODEM_FIXES_H
 
 
-// >>> Set these first three defines
-
-// Serial output for debugging info
-#define DSERIAL Serial
-
-// The Serial port for the Zmodem connection
-// must not be the same as DSERIAL unless all
-// debugging output to DSERIAL is removed
-//#define ZSERIAL Serial3
-#define ZSERIAL Serial
-
-
 ////////////////////////////////////////////////////////
 
 
@@ -39,7 +27,8 @@ extern SdFat sd;
 #define readline(timeout) ({ byte _c; ZSERIAL.readBytes(&_c, 1) > 0 ? _c : TIMEOUT; })
 int zdlread2(int);
 #define zdlread(void) ({ int _z; ((_z = readline(Rxtimeout)) & 0140) ? _z : zdlread2(_z); })
-#define sendline(_c) ZSERIAL.write(char(_c))
+//#define sendline(_c) ZSERIAL.write(char(_c))
+#define sendline(_c) ({ if (ZSERIAL.availableForWrite() > SERIAL_TX_BUFFER_SIZE / 2) ZSERIAL.flush(); ZSERIAL.write(char(_c)); })
 #define zsendline(_z) ({ (_z & 0140 ) ? sendline(_z) : zsendline2(_z); })
 
 void sendzrqinit(void);
@@ -50,13 +39,16 @@ int wcreceive(int argc, char **argp);
 
 extern int Filcnt;
 
-#define time_t int
 #define register int
 
 // If this is not defined the default is 1024.
 // It must be a power of 2
-#define TXBSIZE 1024
 
+#ifdef ARDUINO_SMALL_MEMORY
+#define TXBSIZE 1024
+#else
+#define TXBSIZE 1024
+#endif
 
 #define sleep(x) delay((x)*1000L)
 #define signal(x,y)
@@ -67,9 +59,10 @@ extern int Filcnt;
 
 // For now, evaluate it to zero so that it does not
 // enter the "if" statement's clause
-#define setjmp(j) (0)
+#define setjmp(...)
 
 #define printf(s, ... ) DSERIAL.println(s);
+#define fprintf(...)
 
 // fseek(in, Rxpos, 0)
 //#define fseek(fd, pos, rel) sdfile->seekSet(pos)
@@ -80,7 +73,7 @@ extern int Filcnt;
 
 #define sendbrk()
 
-extern int Fromcu;
+//extern int Fromcu;
 void purgeline(void);
 
 #ifndef UNSL

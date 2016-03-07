@@ -3,26 +3,28 @@
 
 #define VERSION Progname
 
-extern int Rxtimeout;            /* Tenths of seconds to wait for something */
+extern char oneKbuf[1025];
+
+//extern int Rxtimeout;            /* Tenths of seconds to wait for something */
 
 /* Globals used by ZMODEM functions */
-extern int Rxframeind;         /* ZBIN ZBIN32, or ZHEX type of frame received */
-extern int Rxtype;             /* Type of header received */
+extern uint8_t Rxframeind;         /* ZBIN ZBIN32, or ZHEX type of frame received */
+extern uint8_t Rxtype;             /* Type of header received */
 extern int Rxcount;            /* Count of data bytes received */
 extern char Rxhdr[4];          /* Received header */
 extern char Txhdr[4];          /* Transmitted header */
 extern long Rxpos;             /* Received file position */
 extern long Txpos;             /* Transmitted file position */
-extern int Txfcs32;            /* TRUE means send binary frames with 32 bit FCS */
-extern int Crc32t;             /* Display flag indicating 32 bit CRC being sent */
-extern int Crc32;              /* Display flag indicating 32 bit CRC being received */
-extern int Znulls;             /* Number of nulls to send at beginning of ZDATA hdr */
+extern int8_t Txfcs32;            /* TRUE means send binary frames with 32 bit FCS */
+extern int8_t Crc32t;             /* Display flag indicating 32 bit CRC being sent */
+extern int8_t Crc32;              /* Display flag indicating 32 bit CRC being received */
+//extern int Znulls;             /* Number of nulls to send at beginning of ZDATA hdr */
 extern char Attn[ZATTNLEN+1];  /* Attention string rx sends to tx on err */
 
 extern int lastsent;        /* Last char we sent */
-extern int Not8bit;         /* Seven bits seen on header */
+extern uint8_t Not8bit;         /* Seven bits seen on header */
 
-extern char *frametypes[];
+//extern char *frametypes[];
 
 extern uint32_t Baudrate;
 #define xsendline(c) sendline(c)
@@ -49,23 +51,25 @@ extern uint32_t Baudrate;
 
 void bttyout(int c);
 
-extern int Zmodem;           /* ZMODEM protocol requested */
-extern int Verbose;
+#define Zmodem 1           /* ZMODEM protocol requested */
+extern uint8_t Verbose;
 extern char zconv;             /* ZMODEM file conversion request */
 extern char zmanag;            /* ZMODEM file management request */
 extern char ztrans;            /* ZMODEM file transport request */
-extern int Zctlesc;            /* Encode control characters */
-extern int Zrwindow;    /* RX window size (controls garbage count) */
-extern int Nozmodem;
-extern char Lzmanag;
+extern uint8_t Zctlesc;            /* Encode control characters */
+//extern int Zrwindow;    /* RX window size (controls garbage count) */
+//extern int Nozmodem;
+#define Nozmodem 0
+#define Lzmanag 0
 //extern int Restricted;
-extern int Quiet;
-extern int Eofseen;
+//extern int Quiet;
+#define Quiet 0
+extern uint8_t Eofseen;
 
-extern int firstsec;
+extern uint8_t firstsec;
 extern char Lastrx;
 extern char Crcflg;
-extern int errors;
+extern uint8_t errors;
 // This is declared in the main sketch .ino
-extern char *Progname;
+//extern char *Progname;
 #endif

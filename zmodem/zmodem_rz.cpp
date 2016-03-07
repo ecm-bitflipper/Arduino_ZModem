@@ -1,9 +1,3 @@
-#define PUBDIR "/usr/spool/uucppublic"
-
-// ATM remove all the rz code
-//#define TEST_REMOVE
-#ifndef TEST_REMOVE
-
 /*% cc -compat -M2 -Ox -K -i -DMD -DOMEN % -o rz; size rz;
  <-xtx-*> cc386 -Ox -DMD -DOMEN -DSEGMENTS=8 rz.c -o $B/rz;  size $B/rz
  *
@@ -61,52 +55,20 @@
  *  USG UNIX (3.0) ioctl conventions courtesy  Jeff Martin
  */
 
-#ifndef ARDUINO
+#include "zmodem_config.h"
+#include "zmodem_fixes.h"
 
-#include <sys/types.h>
+#ifdef ARDUINO_SMALL_MEMORY_INCLUDE_RZ
 
-#ifdef vax11c
-#include <types.h>
-#include <stat.h>
-#define LOGFILE "rzlog.tmp"
-#define OS "VMS"
-#define BUFREAD
-extern int errno;
-#define SS_NORMAL SS$_NORMAL
-#else
-/* Not vax11c */
-#define SS_NORMAL 0
-#define LOGFILE "/tmp/rzlog"
-#endif
-
-#include <time.h>
-#include <ctype.h>
-#include <errno.h>
-#include <signal.h>
-#include <setjmp.h>
-#include <string.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <utime.h>
-
-#include "zm.c"
-#else
 #include <stdio.h>
 
 #define xsendline(c) sendline(c)
-#include <setjmp.h>
-#include "zmodem_fixes.h"
+
 #include "zmodem.h"
 #include "zmodem_zm.h"
 #include "zmodem_crc16.cpp"
-#endif
-
-#define xsendline(c) sendline(c)
 
 _PROTOTYPE(long getfree , (void));
-_PROTOTYPE(void alrm , (int sig ));
-_PROTOTYPE(int main , (int argc , char *argv []));
-_PROTOTYPE(int usage , (void));
 _PROTOTYPE(int wcreceive , (int argc , char **argp ));
 _PROTOTYPE(int wcrxpn , (char *rpn ));
 _PROTOTYPE(int wcrx , ());
@@ -114,14 +76,11 @@ _PROTOTYPE(int wcgetsec , (char *rxbuf , int maxtime ));
 //_PROTOTYPE(int readline , (int timeout ));
 _PROTOTYPE(void purgeline , (void));
 _PROTOTYPE(int procheader , (char *name ));
-_PROTOTYPE(int make_dirs , (char *pathname ));
-_PROTOTYPE(int makedir , (char *dpath , int dmode ));
 _PROTOTYPE(int putsec , (char *buf , int n ));
 //_PROTOTYPE(void sendline , (int c ));
 _PROTOTYPE(void flushmo , (void));
 _PROTOTYPE(void uncaps , (char *s ));
 _PROTOTYPE(int IsAnyLower , (char *s ));
-_PROTOTYPE(char *substr , (char *s , char *t ));
 
 // Pete (El Supremo)
 //void zperr();
@@ -129,7 +88,6 @@ _PROTOTYPE(char *substr , (char *s , char *t ));
 
 _PROTOTYPE(void canit , (void));
 _PROTOTYPE(void report , (int sct ));
-_PROTOTYPE(void chkinvok , (char *s ));
 _PROTOTYPE(int checkpath , (char *name ));
 _PROTOTYPE(int tryz , (void));
 _PROTOTYPE(int rzfiles , (void));
@@ -138,8 +96,8 @@ _PROTOTYPE(void zmputs , (char *s ));
 _PROTOTYPE(int closeit , (void));
 _PROTOTYPE(void ackbibi , (void));
 _PROTOTYPE(void bttyout , (int c ));
-_PROTOTYPE(int sys2 , (char *s ));
-_PROTOTYPE(void exec2 , (char *s ));
+//_PROTOTYPE(int sys2 , (char *s ));
+//_PROTOTYPE(void exec2 , (char *s ));
 
 /*
  * Max value for HOWMANY is 255.
@@ -153,7 +111,11 @@ _PROTOTYPE(void exec2 , (char *s ));
 
 
 #define WCEOT (-10)
-#define PATHLEN 257     /* ready for 4.2 bsd ? */
+#ifdef ARDUINO_SMALL_MEMORY
+#define PATHLEN 12
+#else
+#define PATHLEN 256     /* ready for 4.2 bsd ? */
+#endif
 #define UNIXFILE 0xF000 /* The S_IFMT file mask bit for stat */
 
 
@@ -173,12 +135,12 @@ _PROTOTYPE(void exec2 , (char *s ));
 #ifndef ARDUINO
 FILE *fout;
 #else
-SdFile fout;
+extern SdFile fout;
 #endif
 
 // Dylan (monte_carlo_ecm, bitflipper, etc.) - Moved this to a global variable to enable
 // crash recovery (continuation of partial file transfer)
-long rxbytes;
+extern long rxbytes;
 
 /*
  * Routine to calculate the free bytes on the current file system
@@ -193,44 +155,54 @@ long getfree(void)
 
 
 
-#ifdef ONEREAD
+//#ifdef ONEREAD
 /* Sorry, Regulus and some others don't work right in raw mode! */
-int Readnum = 1;        /* Number of bytes to ask for in read() from modem */
-#else
-int Readnum = HOWMANY;  /* Number of bytes to ask for in read() from modem */
-#endif
+//int Readnum = 1;        /* Number of bytes to ask for in read() from modem */
+//#else
+//int Readnum = HOWMANY;  /* Number of bytes to ask for in read() from modem */
+//#endif
 
 #define DEFBYTL 2000000000L     /* default rx file size */
-long Bytesleft;         /* number of bytes of incoming file left */
-long Modtime;           /* Unix style mod time for incoming file */
-int Filemode;           /* Unix style mode for incoming file */
-char Pathname[PATHLEN];
+extern long Bytesleft;         /* number of bytes of incoming file left */
+//long Modtime;           /* Unix style mod time for incoming file */
+//int Filemode;           /* Unix style mode for incoming file */
+
+// Dylan (monte_carlo_ecm, bitflipper, etc.) - Once again, in order to save every precious byte I
+// could find, I borrow the tail end of the receive buffer for the incoming Pathname.  By the time
+// the ZModem file transfer begins and actually uses bytes of the buffer up to this point (768),
+// the need for Pathname is past because the file is already open.  Again, very unorthodox, I
+// don't like writing code like this, but it's either tricks like this or the sketch cannot work
+// at all on a board with 2K of RAM.
+
+//char Pathname[PATHLEN];
+#define Pathname (&oneKbuf[768])
+
 //char *Progname;         /* the name by which we were called */
 
-int Batch=0;
-int Topipe=0;
-int MakeLCPathname=TRUE;        /* make received pathname lower case */
+#define Batch 0
+#define Topipe 0
+#define MakeLCPathname TRUE        /* make received pathname lower case */
 
 
-int Nflag = 0;          /* Don't really transfer files */
-int Rxclob=FALSE;       /* Clobber existing file */
-int Rxbinary=FALSE;     /* receive all files in bin mode */
-int Rxascii=FALSE;      /* receive files in ascii (translate) mode */
-int Thisbinary;         /* current file is to be received in bin mode */
-int Blklen;             /* record length of received packets */
+//int Nflag = 0;          /* Don't really transfer files */
+#define Rxclob FALSE       /* Clobber existing file */
+#define Rxbinary FALSE     /* receive all files in bin mode */
+#define Rxascii FALSE      /* receive files in ascii (translate) mode */
+uint8_t Thisbinary;         /* current file is to be received in bin mode */
+extern int Blklen;             /* record length of received packets */
 
 #ifdef SEGMENTS
 int chinseg = 0;        /* Number of characters received in this data seg */
 char secbuf[1+(SEGMENTS+1)*1024];
 #else
-char secbuf[1025];
-#define SECBUF_LEN 1024
+#define secbuf oneKbuf
+#define SECBUF_LEN TXBSIZE
 #endif
 
 
-char linbuf[HOWMANY];
-int Lleft=0;            /* number of characters in linbuf */
-time_t timep[2];
+//char linbuf[HOWMANY];
+uint8_t Lleft=0;            /* number of characters in linbuf */
+//time_t timep[2];
 
 
 
@@ -240,15 +212,9 @@ time_t timep[2];
 
 
 
-int tryzhdrtype=ZRINIT; /* Header type to send corresponding to Last rx close */
+uint8_t tryzhdrtype=ZRINIT; /* Header type to send corresponding to Last rx close */
 
 #ifdef ARDUINO_RECV
-/*
-void alrm(int sig)
-{
-  longjmp(tohere, -1);
-}
-*/
 
 #ifndef ARDUINO
 /* called by signal interrupt or terminate to clean things up */
@@ -281,8 +247,7 @@ void bibi(int n)
  * Let's receive something already.
  */
 
-char *rbmsg =
-"%s ready. To begin transfer, type \"%s file ...\" to your modem program\r\n\n";
+#define rbmsg F("%s ready. To begin transfer, type \"%s file ...\" to your modem program\r\n\n")
 
 int wcreceive(int argc, char **argp)
 //int argc;
@@ -330,8 +295,8 @@ int wcreceive(int argc, char **argp)
   } 
   else {
     Bytesleft = DEFBYTL; 
-    Filemode = 0; 
-    Modtime = 0L;
+    //Filemode = 0; 
+    //Modtime = 0L;
 
     procheader(""); 
     strcpy(Pathname, *argp); 
@@ -624,14 +589,16 @@ int procheader(char *name)
 #endif
 
   Bytesleft = DEFBYTL; 
-  Filemode = 0; 
-  Modtime = 0L;
+  //Filemode = 0; 
+  //Modtime = 0L;
 
   p = name + 1 + strlen(name);
   if (*p) {       /* file coming from Unix or DOS system */
-    sscanf(p, "%ld%lo%o", &Bytesleft, &Modtime, &Filemode);
+//    sscanf(p, "%ld%lo%o", &Bytesleft, &Modtime, &Filemode);
+    Bytesleft = atol(p);
+
 #ifndef vax11c
-    if (Filemode & UNIXFILE)
+//    if (Filemode & UNIXFILE)
       ++Thisbinary;
 #endif
     if (Verbose) {
@@ -656,27 +623,11 @@ int procheader(char *name)
   }
 
 #ifndef vax11c
-  if (!Zmodem && MakeLCPathname && !IsAnyLower(name)
+/*  if (!Zmodem && MakeLCPathname && !IsAnyLower(name)
     && !(Filemode&UNIXFILE))
-    uncaps(name);
+    uncaps(name); */
 #endif
-  if (Topipe > 0) {
-    sprintf(Pathname, "%s %s", Progname+2, name);
-    if (Verbose)
-      fprintf(stderr,  "Topipe: %s %s\n",
-      Pathname, Thisbinary?"BIN":"ASCII");
-#ifndef vax11c
-#ifndef ARDUINO
-    if ((fout=popen(Pathname, "w")) == NULL)
-#else
-    if (!fout.open(Pathname, O_WRITE | O_CREAT | O_AT_END))
-#endif
-      return ERROR;
 
-    rxbytes = fout.fileSize();
-#endif
-  } 
-  else {
     strcpy(Pathname, name);
     if (Verbose) {
       fprintf(stderr,  "Receiving %s %s %s\n",
@@ -686,8 +637,8 @@ int procheader(char *name)
 //      canit();
 //      return ERROR;
 //    }
-    if (Nflag)
-      name = "/dev/null";
+//    if (Nflag)
+//      name = "/dev/null";
 #ifndef vax11c
 #ifdef OMEN
     if (name[0] == '!' || name[0] == '|') {
@@ -699,12 +650,7 @@ int procheader(char *name)
     }
 #endif
 #endif
-#ifdef MD
-    fout = fopen(name, openmode);
-    if ( !fout)
-      if (make_dirs(name))
-        fout = fopen(name, openmode);
-#else
+
 #ifndef ARDUINO
     fout = fopen(name, openmode);
 #else
@@ -712,114 +658,16 @@ int procheader(char *name)
     rxbytes = fout.fileSize();
 
 #endif
-#endif
 #ifndef ARDUINO
     if ( !fout)
 #else
     if (!fout.isOpen())
 #endif
       return ERROR;
-  }
+//  }
   return OK;
 #endif /* BIX */
 }
-
-#ifdef MD
-/*
- *  Directory-creating routines from Public Domain TAR by John Gilmore
- */
-
-/*
- * After a file/link/symlink/dir creation has failed, see if
- * it's because some required directory was not present, and if
- * so, create all required dirs.
- */
-int make_dirs(char *pathname)
-{
-  register char *p;               /* Points into path */
-  int madeone = 0;                /* Did we do anything yet? */
-  int save_errno = errno;         /* Remember caller's errno */
-  char *strchr();
-
-  if (errno != ENOENT)
-    return 0;               /* Not our problem */
-
-  for (p = strchr(pathname, '/'); p != NULL; p = strchr(p+1, '/')) {
-    /* Avoid mkdir of empty string, if leading or double '/' */
-    if (p == pathname || p[-1] == '/')
-      continue;
-    /* Avoid mkdir where last part of path is '.' */
-    if (p[-1] == '.' && (p == pathname+1 || p[-2] == '/'))
-      continue;
-    *p = 0;                         /* Truncate the path there */
-    if ( !makedir(pathname, 0777)) {        /* Try to create it as a dir */
-      vfile(F("Made directory %s\n"), pathname);
-      madeone++;              /* Remember if we made one */
-      *p = '/';
-      continue;
-    }
-    *p = '/';
-    if (errno == EEXIST)            /* Directory already exists */
-      continue;
-    /*
-                 * Some other error in the makedir.  We return to the caller.
-     */
-    break;
-  }
-  errno = save_errno;             /* Restore caller's errno */
-  return madeone;                 /* Tell them to retry if we made one */
-}
-
-#if (MD != 2)
-#define TERM_SIGNAL(status)     ((status) & 0x7F)
-#define TERM_COREDUMP(status)   (((status) & 0x80) != 0)
-#define TERM_VALUE(status)      ((status) >> 8)
-/*
- * Make a directory.  Compatible with the mkdir() system call on 4.2BSD.
- */
-int makedir(char *dpath,int dmode)
-{
-  int cpid, status;
-  struct stat statbuf;
-
-  if (stat(dpath,&statbuf) == 0) {
-    errno = EEXIST;         /* Stat worked, so it already exists */
-    return -1;
-  }
-
-  /* If stat fails for a reason other than non-existence, return error */
-  if (errno != ENOENT) return -1; 
-
-  switch (cpid = fork()) {
-
-  case -1:                        /* Error in fork() */
-    return(-1);             /* Errno is set already */
-
-  case 0:                         /* Child process */
-    /*
-                 * Cheap hack to set mode of new directory.  Since this
-     * child process is going away anyway, we zap its umask.
-     * FIXME, this won't suffice to set SUID, SGID, etc. on this
-     * directory.  Does anybody care?
-     */
-    status = umask(0);      /* Get current umask */
-    status = umask(status | (0777 & ~dmode)); /* Set for mkdir */
-    execl("/bin/mkdir", "mkdir", dpath, (char *)0);
-    _exit(-1);              /* Can't exec /bin/mkdir */
-
-  default:                        /* Parent process */
-    while (cpid != wait(&status)) ; /* Wait for kid to finish */
-  }
-
-  if (TERM_SIGNAL(status) != 0 || TERM_VALUE(status) != 0) {
-    errno = EIO;            /* We don't know why, but */
-    return -1;              /* /bin/mkdir failed */
-  }
-
-  return 0;
-}
-#endif /* MD != 2 */
-#endif /* MD */
 
 /*
  * Putsec writes the n characters of buf to receive file fout.
@@ -864,12 +712,12 @@ int putsec(char *buf,int n)
 
 
 /* make string s lower case */
-void uncaps(char *s)
+/*void uncaps(char *s)
 {
   for ( ; *s; ++s)
     if (isupper(*s))
       *s = tolower(*s);
-}
+} */
 /*
  * IsAnyLower returns TRUE if string s has lower case letters.
  */
@@ -881,27 +729,6 @@ int IsAnyLower(char *s)
   return FALSE;
 }
 
-/*
- * substr(string, token) searches for token in string s
- * returns pointer to token within string if found, NULL otherwise
- */
-char *substr(char *s, char *t)
-{
-  char *ss,*tt;
-  /* search for first char of token */
-  for (ss=s; *s; s++)
-    if (*s == *t)
-      /* compare token with substring */
-      for (ss=s,tt=t; ;) {
-        if (*tt == 0)
-          return s;
-        if (*ss++ != *tt++)
-          break;
-      }
-  return (char *)NULL;
-}
-
-
 
 void report(int sct)
 {
@@ -909,67 +736,6 @@ void report(int sct)
     fprintf(stderr,"%03d%c",sct,sct%10? ' ' : '\r');
 }
 
-#ifndef vax11c
-/*
- * If called as [-][dir/../]vrzCOMMAND set Verbose to 1
- * If called as [-][dir/../]rzCOMMAND set the pipe flag
- * If called as rb use YMODEM protocol
- */
-void chkinvok(char *s)
-{
-  char *p;
-
-  p = s;
-  while (*p == '-')
-    s = ++p;
-  while (*p)
-    if (*p++ == '/')
-      s = p;
-  if (*s == 'v') {
-    Verbose=1; 
-    ++s;
-  }
-  Progname = s;
-  if (s[0]=='r' && s[1]=='z')
-    Batch = TRUE;
-  if (s[0]=='r' && s[1]=='b')
-    Batch = Nozmodem = TRUE;
-  if (s[2] && s[0]=='r' && s[1]=='b')
-    Topipe = 1;
-  if (s[2] && s[0]=='r' && s[1]=='z')
-    Topipe = 1;
-}
-#endif
-
-/*
- * Totalitarian Communist pathname processing
-Dylan (monte_carlo_ecm, bitflipper, etc.) - This really isn't necessary
-since we can open the file for append (crash recovery) and security is not
-relevant in a closed environment - removing
- */
-/* int checkpath(char *name)
-{
-  if (Restricted) {
-#ifndef ARDUINO    
-    if (fopen(name, "r") != NULL) {
-#else
-    if (sd.exists(name)) {
-#endif
-      canit();
-      fprintf(stderr, (char *)"\r\nrz: %s exists\n", name);
-      return ERROR;
-    }
-    // restrict pathnames to current tree or uucppublic
-    if ( substr(name, (char *)"../")
-      || (name[0]== '/' && strncmp(name, PUBDIR, strlen(PUBDIR))) ) {
-      canit();
-      fprintf(stderr,(char *)"\r\nrz:\tSecurity Violation\r\n");
-      return ERROR;
-    }
-  }
-  return 0;
-}
-*/
 
 /*
  * Initialize for Zmodem receive attempt, try to activate Zmodem sender
@@ -1001,7 +767,7 @@ int tryz(void)
 // the maximum buffer size that the sender expects us to have.  It seems most ZModem send implementations
 // ignore it, with Hyperterminal being the only exception I can find.  Without setting this, even
 // Hyperterminal outstrips the Arduino's speed and buffer (64 bytes) at 57600 baud. 
-    stohdr(1024L);
+    stohdr(SECBUF_LEN);
 
 #endif
 
@@ -1064,18 +830,18 @@ again:
 
       cmdzack1flg = Rxhdr[ZF0];
       if (zrdata(secbuf, SECBUF_LEN) == GOTCRCW) {
-        if (cmdzack1flg & ZCACK1)
+//        if (cmdzack1flg & ZCACK1)
           stohdr(0L);
-        else
-          stohdr((long)sys2(secbuf));
+//        else
+//          stohdr((long)sys2(secbuf));
         purgeline();    /* dump impatient questions */
         do {
           zshhdr(ZCOMPL, Txhdr);
         }
         while (++errors<20 && zgethdr(Rxhdr,1) != ZFIN);
         ackbibi();
-        if (cmdzack1flg & ZCACK1)
-          exec2(secbuf);
+//        if (cmdzack1flg & ZCACK1)
+//          exec2(secbuf);
         return ZCOMPL;
       }
       zshhdr(ZNAK, Txhdr); 
@@ -1343,41 +1109,13 @@ void zmputs(char *s)
 /*
  * Close the receive dataset, return OK or ERROR
  */
-//>>> TODO - this needs to be fixed up for Teensy/Arduino - Done now I believe
+
 int closeit(void)
 {
-#ifndef ARDUINO
-  time_t q;
-
-
-#ifndef vax11c
-  if (Topipe) {
-    if (pclose(fout)) {
-      return ERROR;
-    }
-    return OK;
-  }
-#endif
-  if (fclose(fout)==ERROR) {
-    fprintf(stderr, "file close ERROR\n");
-    return ERROR;
-  }
-#ifndef vax11c
-  if (Modtime) {
-    timep[0] = time(&q);
-    timep[1] = Modtime;
-    utime(Pathname, (struct utimbuf *) timep);
-  }
-#endif
-
-  if ((Filemode&S_IFMT) == S_IFREG)
-    chmod(Pathname, (07777 & Filemode));
-#else
   fout.flush();
   fout.sync();
   fout.close();
 
-#endif
   return OK;
 }
 
@@ -1389,7 +1127,7 @@ void ackbibi(void)
   int n;
 
   vfile(F("ackbibi:"));
-  Readnum = 1;
+  //Readnum = 1;
   stohdr(0L);
   for (n=3; --n>=0; ) {
     purgeline();
@@ -1408,32 +1146,6 @@ void ackbibi(void)
   }
 }
 
-
-
-
-#ifndef vax11c
-#ifndef ARDUINO
-/*
- * Strip leading ! if present, do shell escape. 
- */
-int sys2(char *s)
-{
-  if (*s == '!')
-    ++s;
-  return system(s);
-}
-/*
- * Strip leading ! if present, do exec.
- */
-void exec2(char *s)
-{
-
-}
-#else
-int sys2(char *s){}
-void exec2(char *s) {}
-#endif
-#endif
 /* End of rz.c */
 
 

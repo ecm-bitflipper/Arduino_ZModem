@@ -1,6 +1,7 @@
 // From: http://www.raspberryginger.com/jbailey/minix/html/zmodem_8h-source.html
 #ifndef ZMODEM_H
 #define ZMODEM_H
+#include "zmodem_config.h"
 #include "zmodem_fixes.h"
 /*
  *   Z M O D E M . H     Manifest constants for ZMODEM
@@ -74,7 +75,9 @@
 #define ESC8   0200     /* Receiver expects 8th bit to be escaped */
 
 /* Parameters for ZSINIT frame */
-#define ZATTNLEN 32     /* Max length of attention string */
+//#define ZATTNLEN 32    /* Max length of attention string */
+#define ZATTNLEN 4     /* Need to take back as many bytes as possible, hopefully no one really sends a lengthy ATTN */
+
 /* Bit Masks for ZSINIT flags byte ZF0 */
 #define TESCCTL 0100    /* Transmitter expects ctl chars to be escaped */
 #define TESC8   0200    /* Transmitter expects 8th bit to be escaped */
@@ -109,19 +112,19 @@
 //#ifdef NOTDEF
 // Pete (El Supremo) - fix up extern int
 /* Globals used by ZMODEM functions */
-extern int Rxframeind;      /* ZBIN ZBIN32, or ZHEX type of frame received */
-extern int Rxtype;          /* Type of header received */
+extern uint8_t Rxframeind;      /* ZBIN ZBIN32, or ZHEX type of frame received */
+extern uint8_t Rxtype;          /* Type of header received */
 extern int Rxcount;         /* Count of data bytes received */
-extern int Zrwindow;        /* RX window size (controls garbage count) */
+//extern int Zrwindow;        /* RX window size (controls garbage count) */
 extern int Rxtimeout;       /* Tenths of seconds to wait for something */
 extern char Rxhdr[4];   /* Received header */
 extern char Txhdr[4];   /* Transmitted header */
 extern long Rxpos;      /* Received file position */
 extern long Txpos;      /* Transmitted file position */
-extern int Txfcs32;         /* TURE means send binary frames with 32 bit FCS */
-extern int Crc32t;          /* Display flag indicating 32 bit CRC being sent */
-extern int Crc32;           /* Display flag indicating 32 bit CRC being received */
-extern int Znulls;          /* Number of nulls to send at beginning of ZDATA hdr */
+extern int8_t Txfcs32;         /* TURE means send binary frames with 32 bit FCS */
+extern int8_t Crc32t;          /* Display flag indicating 32 bit CRC being sent */
+extern int8_t Crc32;           /* Display flag indicating 32 bit CRC being received */
+//extern int Znulls;          /* Number of nulls to send at beginning of ZDATA hdr */
 extern char Attn[ZATTNLEN+1];   /* Attention string rx sends to tx on err */
 //#endif
 
@@ -139,12 +142,9 @@ _PROTOTYPE(void sendbrk , (void));
 /* zm.c */
 
 _PROTOTYPE(void zsbhdr , (int type , char *hdr ));
-_PROTOTYPE(void zsbh32 , (char *hdr , int type ));
 _PROTOTYPE(void zshhdr , (int type , char *hdr ));
 _PROTOTYPE(void zsdata , (char *buf , int length , int frameend ));
-_PROTOTYPE(void zsda32 , (char *buf , int length , int frameend ));
 _PROTOTYPE(int zrdata , (char *buf , int length ));
-_PROTOTYPE(int zrdat32 , (char *buf , int length ));
 _PROTOTYPE(int zgethdr , (char *hdr , int eflag ));
 _PROTOTYPE(int zrbhdr , (char *hdr ));
 _PROTOTYPE(int zrbhdr32 , (char *hdr ));
@@ -166,7 +166,7 @@ void vfile();
 #endif
 
 _PROTOTYPE(void bibi , (int n ));
-_PROTOTYPE(int wcs , (const char *oname, SdFile* file ));
+_PROTOTYPE(int wcs , (const char *oname));
 _PROTOTYPE(void saybibi, (void));
 
 int wctxpn(char *name,SdFile *file);
