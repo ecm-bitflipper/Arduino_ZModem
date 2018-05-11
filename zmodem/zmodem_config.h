@@ -1,7 +1,7 @@
 #ifndef ZMODEM_CONFIG_H
 #define ZMODEM_CONFIG_H
 
-#define Progname F("Arduino ZModem V2.1")
+#define Progname F("Arduino ZModem V2.1.2")
 
 // Dylan (monte_carlo_ecm, bitflipper, etc.) - The SparkFun MP3 shield (which contains an SDCard)
 // doesn't operate properly with the SDFat library (SPI related?) unless the MP3 library is
@@ -24,6 +24,12 @@
 // debugging output to DSERIAL is removed
 //#define ZSERIAL Serial3
 #define ZSERIAL Serial
+
+#ifdef TEENSYDUINO
+  #ifndef SERIAL_TX_BUFFER_SIZE
+    #define SERIAL_TX_BUFFER_SIZE 64
+  #endif
+#endif
 
 // Dylan (monte_carlo_ecm, bitflipper, etc.) - Adjust the baud rate to suit your board and needs
 #define ZMODEM_SPEED 57600

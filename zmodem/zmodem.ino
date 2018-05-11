@@ -48,6 +48,11 @@ See: http://forum.arduino.cc/index.php?topic=173562.0
   for maximum peace of mind and stability if you don't need all the features
   (send, receive and file management).
 
+V2.1.2
+2018-05-11
+  - Fixes for Arduino IDE 1.8.5
+  - Attempted to patch for use on Teensy
+
 V2.1
 2015-03-06
   - Large scale code clean-up, reduction of variable sizes where they were
