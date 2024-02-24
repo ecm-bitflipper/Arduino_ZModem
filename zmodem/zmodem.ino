@@ -48,11 +48,6 @@ See: http://forum.arduino.cc/index.php?topic=173562.0
   for maximum peace of mind and stability if you don't need all the features
   (send, receive and file management).
 
-V2.1.2
-2018-05-11
-  - Fixes for Arduino IDE 1.8.5
-  - Attempted to patch for use on Teensy
-
 V2.1
 2015-03-06
   - Large scale code clean-up, reduction of variable sizes where they were
@@ -122,13 +117,20 @@ V2.00
     but is zero length.
     
   - THIS VERSION SENDS MULTIPLE FILES
-
+3.00
+240222
+  - Updated for Arduino IDE 2.3.1 and SdFat 2.2.2
+  - This version has all features enabled by default.  If you have a smaller
+    board and want to disable features to attempt to get it to fit on your
+    board, edit zmodem_config.h accordingly
+  - I cannot guarantee this thing still fits on the really tiny boards as
+    the new SdFat library is by its nature more memory hungry
 */
 
 #include <SdFat.h>
-#include <SdFatUtil.h>
+//#include <SdFatUtil.h>
 
-SdFat sd;
+SdFs sd;
 
 #ifdef SFMP3_SHIELD
 #include <SFEMP3Shield.h>
@@ -199,7 +201,8 @@ SdFile fout;
 // unorthodox, but now it works on an Uno.  Please see notes in zmodem_config.h for limitations
 
 #define name (&oneKbuf[512])
-#define dir ((dir_t *)&oneKbuf[256])
+#define dir ((FsFile *)&oneKbuf[256])
+#define file ((FsFile*)&oneKbuf[768])
 
 void setup()
 {
@@ -215,19 +218,23 @@ void setup()
 //  DSERIALprint(F("Transfer rate: "));
 //  DSERIALprintln(ZMODEM_SPEED);
 
+#ifdef SFMP3_SHIELD
+DSERIAL.println(F("SparkFun MP3!\n"));
+#else
+DSERIAL.println(F("Regular SD Card\n"));
+#endif
+
   //Initialize the SdCard.
 //DSERIALprintln(F("About to initialize SdCard"));
   if(!sd.begin(SD_SEL, SPI_FULL_SPEED)) sd.initErrorHalt(&DSERIAL);
   // depending upon your SdCard environment, SPI_HALF_SPEED may work better.
 //DSERIALprintln(F("About to change directory"));
-  if(!sd.chdir("/", true)) sd.errorHalt(F("sd.chdir"));
+  if(!sd.chdir((const char *)("/"))) sd.errorHalt(F("sd.chdir"));
 //DSERIALprintln(F("SdCard setup complete"));
 
   #ifdef SFMP3_SHIELD
   mp3.begin();
   #endif
-
-  sd.vwd()->rewind();
 
   help();
  
@@ -237,31 +244,21 @@ int count_files(int *file_count, long *byte_count)
 {
   *file_count = 0;
   *byte_count = 0;
-  
-  sd.vwd()->rewind();
 
-  while (sd.vwd()->readDir(dir) == sizeof(*dir)) {
+  dir->openCwd();
+  dir->rewindDirectory();
+
+  while (file->openNext(dir)) {
     // read next directory entry in current working directory
 
-    // format file name
-    SdFile::dirName(dir, name);
-
-    // remember position in directory
-    uint32_t pos = sd.vwd()->curPosition();
-     
-    // open file
-    if (!fout.open(name, O_READ)) error(F("file.open failed"));
-    
-    // restore root position
-    else if (!sd.vwd()->seekSet(pos)) error(F("seekSet failed"));
-  
-    else if (!fout.isDir()) {
+    if (!file->isDir()) {
       *file_count = *file_count + 1;
-      *byte_count = *byte_count + fout.fileSize();
+      *byte_count = *byte_count + file->fileSize();
     }
      
-    fout.close();
+    file->close();
   }
+  dir->close();
   return 0;
 }
 
@@ -311,33 +308,37 @@ void loop(void)
   } else if (!strcmp_P(cmd, PSTR("DIR")) || !strcmp_P(cmd, PSTR("LS"))) {
     DSERIALprintln(F("Directory Listing:"));
 
-    sd.vwd()->rewind();
+    dir->openCwd();
+    dir->rewindDirectory();
 
-    while (sd.vwd()->readDir(dir) == sizeof(*dir)) {
+    while (file->openNext(dir)) {
       // read next directory entry in current working directory
   
       // format file name
-      SdFile::dirName(dir, name);
+      file->getName(name, 64);
 
       DSERIAL.flush(); DSERIAL.print(name); DSERIAL.flush();
-      for (uint8_t i = 0; i < 16 - strlen(name); ++i) DSERIALprint(F(" "));
-      if (!(dir->attributes & DIR_ATT_DIRECTORY)) {
-        ultoa(dir->fileSize, name, 10);
+      for (uint8_t i = 0; i < 64 - strlen(name); ++i) DSERIALprint(F(" "));
+      if (!(file->isDir())) {
+        ultoa(file->fileSize(), name, 10);
         DSERIAL.flush(); DSERIAL.println(name); DSERIAL.flush();
       } else {
         DSERIALprintln(F("DIR"));
       }
       DSERIAL.flush();
+      file->close();
     }
     DSERIALprintln(F("End of Directory"));
  
   } else if (!strcmp_P(cmd, PSTR("PWD"))) {
-    sd.vwd()->getName(name, 13);
+    dir->openCwd();
+    dir->getName(name, 256);
+    dir->close();
     DSERIALprint(F("Current working directory is "));
     DSERIAL.flush(); DSERIAL.println(name); DSERIAL.flush();
   
   } else if (!strcmp_P(cmd, PSTR("CD"))) {
-    if(!sd.chdir(param, true)) {
+    if(!sd.chdir(param)) {
       DSERIALprint(F("Directory "));
       DSERIAL.flush(); DSERIAL.print(param); DSERIAL.flush();
       DSERIALprintln(F(" not found"));
@@ -379,23 +380,30 @@ void loop(void)
 //    Filcnt = 0;
     if (!strcmp_P(param, PSTR("*"))) {
       count_files(&Filesleft, &Totalleft);
-      sd.vwd()->rewind();
 
       if (Filesleft > 0) {
-        ZSERIAL.print(F("rz\r"));
+        ZSERIAL.print(F("rz\n"));
+        ZSERIAL.flush();
+
         sendzrqinit();
         delay(200);
+
+        // Cannot use the "shared 1K memory" block with the latest SDFat because the file transfer will corrupt the directory object.
+        FsFile dirsz;
+
+        dirsz.openCwd();
+        dirsz.rewindDirectory();
         
-        while (sd.vwd()->readDir(dir) == sizeof(*dir)) {
+        while (fout.openNext(&dirsz)) {
           // read next directory entry in current working directory
-      
-          // format file name
-          SdFile::dirName(dir, name);
-                     
+                           
           // open file
-          if (!fout.open(name, O_READ)) error(F("file.open failed"));
+          fout.getName(name, 256);
+          //if (!fout.open(name, O_READ)) error(F("file.open failed"));
         
-          else if (!fout.isDir()) {
+          //else 
+          if (!fout.isDir()) {
+
             if (wcs(name) == ERROR) {
               delay(500);
               fout.close();
@@ -403,9 +411,12 @@ void loop(void)
             }
             else delay(500);
           }
-           
           fout.close();
+
         }
+
+        dirsz.close();
+
         saybibi();
       } else {
         DSERIALprintln(F("No files found to send"));
@@ -416,7 +427,8 @@ void loop(void)
       // Start the ZMODEM transfer
       Filesleft = 1;
       Totalleft = fout.fileSize();
-      ZSERIAL.print(F("rz\r"));
+      ZSERIAL.print(F("rz\n"));
+      ZSERIAL.flush();
       sendzrqinit();
       delay(200);
       wcs(param);
@@ -432,7 +444,7 @@ void loop(void)
     } else {
       DSERIALprintln(F("zmodem transfer successful"));
     }
-    fout.flush();
+    //fout.flush();
     fout.sync();
     fout.close();
 #endif

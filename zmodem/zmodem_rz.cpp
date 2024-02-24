@@ -339,7 +339,6 @@ fubar:
   }
 #endif
 #else
-  fout.flush();
   fout.sync();
   fout.close();
 #endif
@@ -768,7 +767,6 @@ int tryz(void)
 // ignore it, with Hyperterminal being the only exception I can find.  Without setting this, even
 // Hyperterminal outstrips the Arduino's speed and buffer (64 bytes) at 57600 baud. 
     stohdr(SECBUF_LEN);
-
 #endif
 
 #endif
@@ -1112,7 +1110,6 @@ void zmputs(char *s)
 
 int closeit(void)
 {
-  fout.flush();
   fout.sync();
   fout.close();
 
