@@ -236,13 +236,13 @@ int wctxpn(const char *name)
     // I will have to figure out how to convert the uSD date/time format to a UNIX epoch
 //    sprintf(p, "%lu %lo %o 0 %d %ld", fout.fileSize(), 0L,0600, Filesleft, Totalleft);
 // Avoid sprintf to save memory for small boards.  This sketch doesn't know what time it is anyway
-    ultoa(fout.fileSize(), p, 10);
-    strcat_P(p, PSTR(" 0 0 0 "));
-    q = p + strlen(p);
-    ultoa(Filesleft, q, 10);
-    strcat_P(q, PSTR(" "));
-    q = q + strlen(q);
-    ultoa(Totalleft, q, 10);
+//    ultoa(fout.fileSize(), p, 10);
+//    strcat_P(p, PSTR(" 0 0 0 "));
+//    q = p + strlen(p);
+//    ultoa(Filesleft, q, 10);
+//    strcat_P(q, PSTR(" "));
+//    q = q + strlen(q);
+//    ultoa(Totalleft, q, 10);
 
   Totalleft -= fout.fileSize();
 //DSERIAL.print(F("wctxpn sf = "));
